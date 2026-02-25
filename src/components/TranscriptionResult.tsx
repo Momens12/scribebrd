@@ -3,13 +3,16 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Check, FileText, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { cn } from '../utils';
 
 interface TranscriptionResultProps {
   text: string;
+  language?: 'en' | 'ar';
 }
 
-export const TranscriptionResult: React.FC<TranscriptionResultProps> = ({ text }) => {
+export const TranscriptionResult: React.FC<TranscriptionResultProps> = ({ text, language = 'en' }) => {
   const [copied, setCopied] = useState(false);
+  const isRtl = language === 'ar';
 
   const handleCopy = () => {
     navigator.clipboard.writeText(text);
@@ -80,7 +83,7 @@ export const TranscriptionResult: React.FC<TranscriptionResultProps> = ({ text }
         </div>
       </div>
       <div className="p-8 prose prose-zinc max-w-none">
-        <div className="markdown-body">
+        <div className={cn("markdown-body", isRtl && "font-arabic")} dir={isRtl ? 'rtl' : 'ltr'}>
           <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
         </div>
       </div>

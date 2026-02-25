@@ -5,7 +5,9 @@ import { FileUploader } from './components/FileUploader';
 import { MultiFileUploader } from './components/MultiFileUploader';
 import { TranscriptionResult } from './components/TranscriptionResult';
 import { BRDEditor } from './components/BRDEditor';
+import { BRDChat } from './components/BRDChat';
 import { transcribeMedia, generateBRD } from './services/gemini';
+import { Upload, MessageSquare, CheckCircle2 } from 'lucide-react';
 
 // Declare mammoth for TypeScript
 declare global {
@@ -14,11 +16,15 @@ declare global {
   }
 }
 
-interface TranscriptionHistory {
+interface BRDHistory {
   id: string;
-  fileName: string;
-  text: string;
-  timestamp: number;
+  title: string;
+  content: string;
+  transcription: string;
+  extra_notes: string;
+  final_doc_path: string | null;
+  language: 'en' | 'ar';
+  created_at: string;
 }
 
 type AppStep = 'transcribe' | 'brd-setup' | 'brd-result';
@@ -29,13 +35,32 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcription, setTranscription] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [history, setHistory] = useState<TranscriptionHistory[]>([]);
+  const [history, setHistory] = useState<BRDHistory[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [language, setLanguage] = useState<'en' | 'ar'>('en');
 
   // BRD specific state
+  const [currentBrdId, setCurrentBrdId] = useState<string | null>(null);
   const [extraNotes, setExtraNotes] = useState('');
   const [sampleFiles, setSampleFiles] = useState<File[]>([]);
   const [brdResult, setBrdResult] = useState<string | null>(null);
+  const [finalFile, setFinalFile] = useState<File | null>(null);
+  const [isUploadingFinal, setIsUploadingFinal] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+
+  React.useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  const fetchHistory = async () => {
+    try {
+      const res = await fetch('/api/brds');
+      const data = await res.json();
+      setHistory(data);
+    } catch (err) {
+      console.error('Failed to fetch history:', err);
+    }
+  };
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -58,16 +83,8 @@ export default function App() {
 
     try {
       const base64 = await fileToBase64(file);
-      const result = await transcribeMedia(base64, file.type);
+      const result = await transcribeMedia(base64, file.type, language);
       setTranscription(result);
-      
-      const newEntry: TranscriptionHistory = {
-        id: Math.random().toString(36).substr(2, 9),
-        fileName: file.name,
-        text: result,
-        timestamp: Date.now(),
-      };
-      setHistory(prev => [newEntry, ...prev]);
     } catch (err) {
       console.error(err);
       setError('Failed to transcribe media. Please try again with a smaller file or different format.');
@@ -124,14 +141,50 @@ export default function App() {
 
       const validSamples = processedSamples.filter(s => s !== null) as any[];
 
-      const result = await generateBRD(transcription, extraNotes, validSamples);
+      const result = await generateBRD(transcription, extraNotes, validSamples, language);
       setBrdResult(result);
+      
+      // Save to DB
+      const saveRes = await fetch('/api/brds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: file?.name.replace(/\.[^/.]+$/, "") || "Untitled BRD",
+          content: result,
+          transcription: transcription,
+          extraNotes: extraNotes,
+          language: language
+        })
+      });
+      const { id } = await saveRes.json();
+      setCurrentBrdId(id);
+      fetchHistory();
+      
       setStep('brd-result');
     } catch (err) {
       console.error(err);
       setError('Failed to generate BRD. Please check your inputs and try again.');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleFinalUpload = async () => {
+    if (!finalFile || !currentBrdId) return;
+    setIsUploadingFinal(true);
+    const formData = new FormData();
+    formData.append('file', finalFile);
+    try {
+      await fetch(`/api/brds/${currentBrdId}/final`, {
+        method: 'POST',
+        body: formData
+      });
+      fetchHistory();
+      setFinalFile(null);
+    } catch (err) {
+      console.error('Failed to upload final doc:', err);
+    } finally {
+      setIsUploadingFinal(false);
     }
   };
 
@@ -143,6 +196,8 @@ export default function App() {
     setExtraNotes('');
     setSampleFiles([]);
     setBrdResult(null);
+    setCurrentBrdId(null);
+    setShowChat(false);
   };
 
   return (
@@ -157,7 +212,25 @@ export default function App() {
             <span className="font-bold text-xl tracking-tight">EchoScribe</span>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            <div className="bg-zinc-100 p-1 rounded-lg flex items-center gap-1">
+              <button
+                onClick={() => setLanguage('en')}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                  language === 'en' ? 'bg-white text-indigo-600 shadow-sm' : 'text-zinc-400 hover:text-zinc-600'
+                }`}
+              >
+                EN
+              </button>
+              <button
+                onClick={() => setLanguage('ar')}
+                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${
+                  language === 'ar' ? 'bg-white text-indigo-600 shadow-sm' : 'text-zinc-400 hover:text-zinc-600'
+                }`}
+              >
+                AR
+              </button>
+            </div>
             <button 
               onClick={() => setShowHistory(!showHistory)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl hover:bg-zinc-100 transition-colors text-zinc-600 text-sm font-medium"
@@ -184,10 +257,12 @@ export default function App() {
                 {/* Hero Section */}
                 <div className="text-center space-y-4">
                   <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-zinc-900">
-                    Transcribe anything.
+                    {language === 'ar' ? 'حول أي شيء إلى نص.' : 'Transcribe anything.'}
                   </h1>
                   <p className="text-lg text-zinc-500 max-w-lg mx-auto leading-relaxed">
-                    Upload audio or video files and get accurate, AI-powered transcriptions in seconds.
+                    {language === 'ar' 
+                      ? 'قم بتحميل ملفات الصوت أو الفيديو واحصل على نسخ دقيقة مدعومة بالذكاء الاصطناعي في ثوانٍ.' 
+                      : 'Upload audio or video files and get accurate, AI-powered transcriptions in seconds.'}
                   </p>
                 </div>
 
@@ -228,7 +303,7 @@ export default function App() {
 
                   {transcription && (
                     <div className="space-y-8">
-                      <TranscriptionResult text={transcription} />
+                      <TranscriptionResult text={transcription} language={language} />
                       
                       <div className="flex flex-col items-center gap-4 pt-8 border-t border-zinc-200">
                         <div className="text-center">
@@ -376,10 +451,93 @@ export default function App() {
                 </div>
 
                 {brdResult && (
-                  <BRDEditor 
-                    initialText={brdResult} 
-                    onSave={(newText) => setBrdResult(newText)} 
-                  />
+                  <div className="space-y-12">
+                    <BRDEditor 
+                      initialText={brdResult} 
+                      language={language}
+                      onSave={(newText) => setBrdResult(newText)} 
+                    />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* Final Upload Section */}
+                      <div className="bg-white border border-zinc-200 rounded-3xl p-8 shadow-sm space-y-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                            <Upload size={20} />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-zinc-900">Final Document</h3>
+                            <p className="text-xs text-zinc-500">Upload the approved version</p>
+                          </div>
+                        </div>
+
+                        {history.find(h => h.id === currentBrdId)?.final_doc_path ? (
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-emerald-700">
+                              <CheckCircle2 size={20} />
+                              <span className="text-sm font-medium">Final document uploaded</span>
+                            </div>
+                            <a 
+                              href={`/${history.find(h => h.id === currentBrdId)?.final_doc_path}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-2 w-full py-2 text-sm font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
+                            >
+                              <FileText size={16} />
+                              View Uploaded Document
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <input
+                              type="file"
+                              onChange={(e) => setFinalFile(e.target.files?.[0] || null)}
+                              className="w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                            />
+                            {finalFile && (
+                              <button
+                                onClick={handleFinalUpload}
+                                disabled={isUploadingFinal}
+                                className="w-full py-3 bg-zinc-900 text-white rounded-xl font-medium hover:bg-zinc-800 transition-all flex items-center justify-center gap-2"
+                              >
+                                {isUploadingFinal ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+                                Upload Final Version
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Chat Toggle Section */}
+                      <div className="bg-white border border-zinc-200 rounded-3xl p-8 shadow-sm space-y-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+                            <MessageSquare size={20} />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-zinc-900">BRD Chat</h3>
+                            <p className="text-xs text-zinc-500">Discuss this document with AI</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setShowChat(!showChat)}
+                          className="w-full py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+                        >
+                          <MessageSquare size={18} />
+                          {showChat ? 'Hide Chat' : 'Open Chat Assistant'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {showChat && currentBrdId && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                      >
+                        <BRDChat brdId={currentBrdId} brdContent={brdResult} language={language} />
+                      </motion.div>
+                    )}
+                  </div>
                 )}
               </motion.div>
             )}
@@ -430,18 +588,32 @@ export default function App() {
                     <button
                       key={item.id}
                       onClick={() => {
-                        setTranscription(item.text);
-                        setStep('transcribe');
+                        setBrdResult(item.content);
+                        setTranscription(item.transcription);
+                        setCurrentBrdId(item.id);
+                        setLanguage(item.language);
+                        setStep('brd-result');
                         setShowHistory(false);
+                        setShowChat(false);
                       }}
                       className="w-full text-left p-4 rounded-2xl border border-zinc-100 hover:border-indigo-200 hover:bg-indigo-50/30 transition-all group"
                     >
-                      <p className="font-medium text-zinc-900 truncate group-hover:text-indigo-600 transition-colors">
-                        {item.fileName}
-                      </p>
-                      <p className="text-xs text-zinc-400 mt-1">
-                        {new Date(item.timestamp).toLocaleString()}
-                      </p>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="font-medium text-zinc-900 truncate group-hover:text-indigo-600 transition-colors">
+                          {item.title}
+                        </p>
+                        {item.final_doc_path && (
+                          <CheckCircle2 size={14} className="text-emerald-500" />
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between mt-2">
+                        <p className="text-xs text-zinc-400">
+                          {new Date(item.created_at).toLocaleString()}
+                        </p>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 uppercase">
+                          {item.language}
+                        </span>
+                      </div>
                     </button>
                   ))
                 )}

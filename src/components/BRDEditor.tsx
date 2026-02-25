@@ -7,11 +7,13 @@ import { cn } from '../utils';
 
 interface BRDEditorProps {
   initialText: string;
+  language?: 'en' | 'ar';
   onSave?: (text: string) => void;
 }
 
-export const BRDEditor: React.FC<BRDEditorProps> = ({ initialText, onSave }) => {
+export const BRDEditor: React.FC<BRDEditorProps> = ({ initialText, language = 'en', onSave }) => {
   const [text, setText] = useState(initialText);
+  const isRtl = language === 'ar';
   const [isEditing, setIsEditing] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -126,8 +128,12 @@ export const BRDEditor: React.FC<BRDEditorProps> = ({ initialText, onSave }) => 
                   <textarea
                     value={text}
                     onChange={(e) => setText(e.target.value)}
-                    className="w-full h-[800px] p-0 border-none focus:ring-0 resize-none font-mono text-sm leading-relaxed text-zinc-800 outline-none"
-                    placeholder="Write your BRD here using markdown..."
+                    dir={isRtl ? 'rtl' : 'ltr'}
+                    className={cn(
+                      "w-full h-[800px] p-0 border-none focus:ring-0 resize-none font-mono text-sm leading-relaxed text-zinc-800 outline-none",
+                      isRtl && "font-arabic"
+                    )}
+                    placeholder={isRtl ? "اكتب وثيقة متطلبات العمل هنا باستخدام markdown..." : "Write your BRD here using markdown..."}
                     spellCheck={false}
                   />
                 </motion.div>
@@ -137,7 +143,8 @@ export const BRDEditor: React.FC<BRDEditorProps> = ({ initialText, onSave }) => 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="brd-document"
+                  dir={isRtl ? 'rtl' : 'ltr'}
+                  className={cn("brd-document", isRtl && "font-arabic")}
                 >
                   <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
                 </motion.div>
