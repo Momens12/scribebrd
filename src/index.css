@@ -1,0 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Libre Baskerville", serif;
+}
+
+@layer base {
+  body {
+    @apply font-sans antialiased;
+  }
+}
+
+/* Document Styles */
+.brd-document {
+  @apply font-serif text-[11pt] leading-[1.5] text-[#1a1a1a];
+}
+
+.brd-document h1 {
+  @apply text-3xl font-bold text-zinc-900 mb-8 mt-12 text-center border-b-2 border-zinc-900 pb-4;
+}
+
+.brd-document h2 {
+  @apply text-xl font-bold text-zinc-900 mb-4 mt-8 border-b border-zinc-200 pb-1;
+}
+
+.brd-document h3 {
+  @apply text-lg font-bold text-zinc-800 mb-3 mt-6;
+}
+
+.brd-document p {
+  @apply mb-4 text-justify;
+}
+
+.brd-document ul, .brd-document ol {
+  @apply mb-4 ml-8;
+}
+
+.brd-document ul {
+  @apply list-disc;
+}
+
+.brd-document ol {
+  @apply list-decimal;
+}
+
+.brd-document li {
+  @apply mb-2;
+}
+
+.brd-document table {
+  @apply w-full border-collapse mb-6 mt-4;
+}
+
+.brd-document th, .brd-document td {
+  @apply border border-zinc-400 p-3 text-sm;
+}
+
+.brd-document th {
+  @apply bg-zinc-100 font-bold text-left;
+}
+
+.brd-document tr:nth-child(even) {
+  @apply bg-zinc-50/50;
+}
+
+.brd-document blockquote {
+  @apply border-l-4 border-zinc-300 pl-4 italic text-zinc-600 mb-6 mt-4 bg-zinc-50 py-2;
+}
+
+.brd-document hr {
+  @apply border-zinc-200 my-8;
+}
+
+@media print {
+  header, footer, .sticky, button, .bg-zinc-200\/50 {
+    display: none !important;
+  }
+  body {
+    background: white !important;
+  }
+  .brd-document {
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    max-width: none !important;
+  }
+  .min-h-\[1056px\] {
+    min-h: 0 !important;
+  }
+  .p-12, .sm\:p-20 {
+    padding: 0 !important;
+  }
+}
