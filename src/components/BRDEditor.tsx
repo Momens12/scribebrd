@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Check, Download, Edit3, Eye, FileDown, Save, Printer } from 'lucide-react';
+import { Copy, Check, Download, Edit3, Eye, FileDown, Save, Printer, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../utils';
 
@@ -9,13 +9,18 @@ interface BRDEditorProps {
   initialText: string;
   language?: 'en' | 'ar';
   onSave?: (text: string) => void;
+  isLoading?: boolean;
 }
 
-export const BRDEditor: React.FC<BRDEditorProps> = ({ initialText, language = 'en', onSave }) => {
+export const BRDEditor: React.FC<BRDEditorProps> = ({ initialText, language = 'en', onSave, isLoading }) => {
   const [text, setText] = useState(initialText);
   const isRtl = language === 'ar';
   const [isEditing, setIsEditing] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  React.useEffect(() => {
+    setText(initialText);
+  }, [initialText]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(text);
@@ -107,7 +112,20 @@ export const BRDEditor: React.FC<BRDEditorProps> = ({ initialText, language = 'e
       </div>
 
       {/* Document Container */}
-      <div className="relative min-h-[800px] bg-zinc-200/50 p-4 sm:p-8 rounded-[2rem] border border-zinc-300/50 shadow-inner">
+      <div className="relative min-h-[800px] bg-zinc-200/50 p-4 sm:p-8 rounded-[2rem] border border-zinc-300/50 shadow-inner overflow-hidden">
+        {isLoading && (
+          <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-50 flex flex-col items-center justify-center space-y-4">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            >
+              <Sparkles size={48} className="text-indigo-600" />
+            </motion.div>
+            <p className="text-lg font-bold text-zinc-900 animate-pulse">
+              {isRtl ? 'جاري تحديث الوثيقة...' : 'Updating document...'}
+            </p>
+          </div>
+        )}
         <motion.div
           layout
           className={cn(

@@ -3,9 +3,11 @@ import { Mic, Video, Sparkles, Loader2, AlertCircle, History, ArrowRight, FileTe
 import { motion, AnimatePresence } from 'motion/react';
 import { MultiMediaUploader } from './components/MultiMediaUploader';
 import { MultiFileUploader } from './components/MultiFileUploader';
+import { WorkflowDesigner } from './components/WorkflowDesigner';
 import { TranscriptionResult } from './components/TranscriptionResult';
 import { BRDEditor } from './components/BRDEditor';
 import { BRDChat } from './components/BRDChat';
+import { BRDWorkflows } from './components/BRDWorkflows';
 import { transcribeMedia, generateBRD, refineBRD } from './services/gemini';
 import { cn } from './utils';
 import { Upload, MessageSquare, CheckCircle2, Wand2, Send } from 'lucide-react';
@@ -28,9 +30,11 @@ interface BRDHistory {
   created_at: string;
 }
 
+type AppMode = 'brd' | 'workflow';
 type AppStep = 'transcribe' | 'brd-setup' | 'brd-result';
 
 export default function App() {
+  const [mode, setMode] = useState<AppMode>('brd');
   const [step, setStep] = useState<AppStep>('transcribe');
   const [files, setFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -87,9 +91,21 @@ export default function App() {
     try {
       const transcriptions = await Promise.all(
         files.map(async (file) => {
-          const base64 = await fileToBase64(file);
-          const result = await transcribeMedia(base64, file.type, language);
-          return `### Transcription for: ${file.name}\n\n${result}`;
+          const isText = file.type.startsWith('text/') || file.name.endsWith('.txt');
+          const isDocx = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx');
+          
+          if (isText) {
+            const text = await file.text();
+            return `### Content from: ${file.name}\n\n${text}`;
+          } else if (isDocx) {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await window.mammoth.extractRawText({ arrayBuffer });
+            return `### Content from: ${file.name}\n\n${result.value}`;
+          } else {
+            const base64 = await fileToBase64(file);
+            const result = await transcribeMedia(base64, file.type, language);
+            return `### Transcription for: ${file.name}\n\n${result}`;
+          }
         })
       );
       
@@ -241,13 +257,36 @@ export default function App() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-zinc-200">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={reset}>
-            <img 
-              src="http://www.experts.ps/wp-content/uploads/2014/05/logo1.png" 
-              alt="Experts Logo" 
-              className="h-8 w-auto object-contain"
-              referrerPolicy="no-referrer"
-            />
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setMode('brd'); reset(); }}>
+              <img 
+                src="http://www.experts.ps/wp-content/uploads/2014/05/logo1.png" 
+                alt="Experts Logo" 
+                className="h-8 w-auto object-contain"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+            
+            <nav className="hidden md:flex items-center gap-1 bg-zinc-100 p-1 rounded-xl">
+              <button
+                onClick={() => { setMode('brd'); reset(); }}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-sm font-semibold transition-all",
+                  mode === 'brd' ? "bg-white text-indigo-600 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+                )}
+              >
+                BRD Generator
+              </button>
+              <button
+                onClick={() => { setMode('workflow'); reset(); }}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-sm font-semibold transition-all",
+                  mode === 'workflow' ? "bg-white text-indigo-600 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+                )}
+              >
+                Workflow Designer
+              </button>
+            </nav>
           </div>
           
           <div className="flex items-center gap-4">
@@ -284,7 +323,11 @@ export default function App() {
         <div className="max-w-3xl mx-auto space-y-12">
           
           <AnimatePresence mode="wait">
-            {step === 'transcribe' && (
+            {mode === 'workflow' ? (
+              <WorkflowDesigner key="workflow-designer" language={language} />
+            ) : (
+              <>
+                {step === 'transcribe' && (
               <motion.div
                 key="transcribe-step"
                 initial={{ opacity: 0, x: -20 }}
@@ -295,12 +338,12 @@ export default function App() {
                 {/* Hero Section */}
                 <div className="text-center space-y-4">
                   <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-zinc-900">
-                    {language === 'ar' ? 'حول أي شيء إلى نص.' : 'Transcribe anything.'}
+                    {language === 'ar' ? 'حول أي شيء إلى وثيقة عمل.' : 'Transcribe or Upload.'}
                   </h1>
                   <p className="text-lg text-zinc-500 max-w-lg mx-auto leading-relaxed">
                     {language === 'ar' 
-                      ? 'قم بتحميل ملفات الصوت أو الفيديو واحصل على نسخ دقيقة مدعومة بالذكاء الاصطناعي في ثوانٍ.' 
-                      : 'Upload audio or video files and get accurate, AI-powered transcriptions in seconds.'}
+                      ? 'قم بتحميل ملفات الصوت أو الفيديو أو النصوص واحصل على وثائق متطلبات عمل دقيقة في ثوانٍ.' 
+                      : 'Upload audio, video, or text files and get accurate BRDs in seconds.'}
                   </p>
                 </div>
 
@@ -320,7 +363,7 @@ export default function App() {
                         className="group relative px-8 py-4 bg-indigo-600 text-white rounded-2xl font-semibold shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-3"
                       >
                         <Sparkles size={20} className="group-hover:rotate-12 transition-transform" />
-                        {language === 'ar' ? 'بدء النسخ لجميع الملفات' : 'Start Transcription for all files'}
+                        {language === 'ar' ? 'بدء المعالجة لجميع الملفات' : 'Start Processing for all files'}
                       </button>
                     </div>
                   )}
@@ -328,7 +371,7 @@ export default function App() {
                   {isProcessing && (
                     <div className="flex flex-col items-center justify-center py-12 space-y-4">
                       <Loader2 size={48} className="text-indigo-600 animate-spin" />
-                      <p className="text-lg font-medium text-zinc-900">Analyzing your media...</p>
+                      <p className="text-lg font-medium text-zinc-900">Processing your files...</p>
                     </div>
                   )}
 
@@ -366,15 +409,15 @@ export default function App() {
                       <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
                         <Mic size={20} />
                       </div>
-                      <h3 className="font-bold text-zinc-900">Audio Support</h3>
-                      <p className="text-sm text-zinc-500 leading-relaxed">Transcribe podcasts, interviews, and voice notes with high accuracy.</p>
+                      <h3 className="font-bold text-zinc-900">Media Support</h3>
+                      <p className="text-sm text-zinc-500 leading-relaxed">Transcribe audio/video meetings, interviews, and presentations.</p>
                     </div>
                     <div className="space-y-3">
                       <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
-                        <Video size={20} />
+                        <FileText size={20} />
                       </div>
-                      <h3 className="font-bold text-zinc-900">Video Support</h3>
-                      <p className="text-sm text-zinc-500 leading-relaxed">Extract text from lectures, meetings, and presentations effortlessly.</p>
+                      <h3 className="font-bold text-zinc-900">Text Support</h3>
+                      <p className="text-sm text-zinc-500 leading-relaxed">Upload existing transcriptions or notes in TXT or DOCX format.</p>
                     </div>
                     <div className="space-y-3">
                       <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center">
@@ -531,7 +574,12 @@ export default function App() {
                       initialText={brdResult} 
                       language={language}
                       onSave={(newText) => setBrdResult(newText)} 
+                      isLoading={isRefining}
                     />
+
+                    {brdResult && (
+                      <BRDWorkflows brdContent={brdResult} language={language} />
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                       {/* Final Upload Section */}
@@ -616,7 +664,9 @@ export default function App() {
                 )}
               </motion.div>
             )}
-          </AnimatePresence>
+          </>
+        )}
+      </AnimatePresence>
 
         </div>
       </main>

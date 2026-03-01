@@ -1,4 +1,4 @@
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 
 const getAI = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -162,4 +162,133 @@ export async function refineBRD(
   });
 
   return response.text || currentContent;
+}
+
+export async function generateWorkflowXML(
+  steps: string,
+  language: 'en' | 'ar' = 'en'
+): Promise<string> {
+  const ai = getAI();
+
+  const systemInstruction = `You are a professional workflow architect. Convert the following steps into a high-quality, semantic Draw.io mxGraphModel XML.
+  
+  STRICT VISUAL RULES:
+  1. Start/End Nodes: Use style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" and vertex="1".
+  2. Decision Nodes: Use style="rhombus;whiteSpace=wrap;html=1;" and vertex="1".
+  3. Process Nodes: Use style="rounded=0;whiteSpace=wrap;html=1;" and vertex="1".
+  4. Semantic Colors:
+     - Rejected/Error: fillColor=#f8cecc;strokeColor=#b85450;
+     - In Progress/Approved: fillColor=#dae8fc;strokeColor=#6c8ebf;
+     - Warning/Alert: fillColor=#fff2cc;strokeColor=#d6b656;
+  5. Edges: Use style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" and edge="1".
+     - CRITICAL: Edges MUST use 'source' and 'target' attributes referring to node IDs.
+     - DO NOT use <mxPoint> or <Array> tags for edges.
+  6. Labels: ALL decision branches MUST have labels (e.g., "Yes", "No", "Approve", "Reject") using the value attribute on the edge cell.
+  7. Layout: 
+     - Vertical top-to-bottom flow.
+     - Start at x=100, y=40.
+     - Space nodes vertically by at least 100 units.
+     - Keep all x coordinates between 0 and 800.
+     - Keep all y coordinates between 0 and 2000.
+     - Branch decisions to the sides (left/right) to avoid overlapping.
+
+  STRICT XML RULES:
+  1. Return ONLY the XML string starting with <mxGraphModel>.
+  2. NO markdown code blocks. NO explanations.
+  3. NO <Array> tags. NO <mxPoint> tags.
+  4. Use standard IDs (0 for root, 1 for layer).
+  5. Use UNIQUE alphanumeric IDs for all other nodes and edges (e.g., "node1", "edge1").
+  6. Language: ${language}.
+  
+  TEMPLATE:
+  <mxGraphModel>
+    <root>
+      <mxCell id="0" />
+      <mxCell id="1" parent="0" />
+      <mxCell id="start" value="Start" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+        <mxGeometry x="100" y="40" width="80" height="80" as="geometry" />
+      </mxCell>
+      <mxCell id="edge1" value="Next Step" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="start" target="process1">
+        <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+      <mxCell id="process1" value="Process" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+        <mxGeometry x="100" y="200" width="120" height="60" as="geometry" />
+      </mxCell>
+    </root>
+  </mxGraphModel>
+  
+  Input Steps:
+  ${steps}`;
+
+  const response: GenerateContentResponse = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: [{ role: 'user', parts: [{ text: systemInstruction }] }],
+  });
+
+  let xml = response.text || "";
+  xml = xml.replace(/```xml/g, "").replace(/```/g, "").trim();
+  
+  // If the AI outputted a JSON array or object, try to extract XML from it
+  if (xml.startsWith('[') || xml.startsWith('{')) {
+    try {
+      // This is a last resort if the AI ignored the "ONLY XML" rule
+      const parsed = JSON.parse(xml);
+      if (typeof parsed === 'string') xml = parsed;
+      else if (Array.isArray(parsed)) xml = parsed.join('');
+    } catch (e) {
+      // Not JSON, continue with string processing
+    }
+  }
+  
+  const startTag = '<mxGraphModel';
+  const endTag = '</mxGraphModel>';
+  const startIndex = xml.indexOf(startTag);
+  const endIndex = xml.lastIndexOf(endTag);
+  
+  if (startIndex !== -1 && endIndex !== -1) {
+    xml = xml.substring(startIndex, endIndex + endTag.length);
+  } else {
+    console.error("Failed to find <mxGraphModel> in AI response:", xml);
+  }
+
+  // Brute-force remove any <Array> or <mxPoint> tags which cause Draw.io to fail in this environment
+  xml = xml.replace(/<Array[^>]*>/g, '').replace(/<\/Array>/g, '');
+  xml = xml.replace(/<mxPoint[^>]*>/g, '').replace(/<\/mxPoint>/g, '');
+  
+  return xml;
+}
+
+export async function extractWorkflowsFromBRD(
+  brdContent: string,
+  language: 'en' | 'ar' = 'en'
+): Promise<string[]> {
+  const ai = getAI();
+
+  const systemInstruction = language === 'ar'
+    ? `أنت خبير في تحليل العمليات. استخرج جميع مسارات العمل (Workflows) المذكورة في وثيقة متطلبات العمل (BRD) التالية.
+       لكل مسار عمل، قدم وصفاً تسلسلياً واضحاً للخطوات.
+       يجب أن تكون المخرجات بتنسيق JSON كقائمة من النصوص.`
+    : `You are a process analysis expert. Extract all workflows mentioned in the following Business Requirements Document (BRD).
+       For each workflow, provide a clear sequential description of the steps.
+       The output MUST be a JSON array of strings.`;
+
+  const response: GenerateContentResponse = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\nBRD Content:\n${brdContent}` }] }],
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING }
+      }
+    }
+  });
+
+  try {
+    const text = response.text || "[]";
+    return JSON.parse(text);
+  } catch (e) {
+    console.error("Failed to parse workflows JSON:", e);
+    return [];
+  }
 }

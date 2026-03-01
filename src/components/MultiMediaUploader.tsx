@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Upload, FileAudio, FileVideo, X, Plus } from 'lucide-react';
+import { Upload, FileAudio, FileVideo, X, Plus, FileText } from 'lucide-react';
 import { cn } from '../utils';
 
 interface MultiMediaUploaderProps {
@@ -34,7 +34,13 @@ export const MultiMediaUploader: React.FC<MultiMediaUploaderProps> = ({
     if (disabled) return;
     
     const files = Array.from(e.dataTransfer.files).filter(
-      file => file.type.startsWith('audio/') || file.type.startsWith('video/')
+      file => 
+        file.type.startsWith('audio/') || 
+        file.type.startsWith('video/') || 
+        file.type.startsWith('text/') ||
+        file.name.endsWith('.txt') ||
+        file.name.endsWith('.docx') ||
+        file.name.endsWith('.doc')
     );
     if (files.length > 0) {
       onFilesSelect(files);
@@ -68,7 +74,7 @@ export const MultiMediaUploader: React.FC<MultiMediaUploaderProps> = ({
           type="file"
           ref={fileInputRef}
           onChange={handleFileChange}
-          accept="audio/*,video/*"
+          accept="audio/*,video/*,.txt,.doc,.docx"
           multiple
           className="hidden"
           disabled={disabled}
@@ -77,8 +83,8 @@ export const MultiMediaUploader: React.FC<MultiMediaUploaderProps> = ({
           <Upload size={32} />
         </div>
         <div className="text-center">
-          <p className="text-lg font-medium text-zinc-900">Click or drag to upload multiple records</p>
-          <p className="text-sm text-zinc-500 mt-1">Audio or Video files (MP3, WAV, MP4, etc.)</p>
+          <p className="text-lg font-medium text-zinc-900">Click or drag to upload records or transcriptions</p>
+          <p className="text-sm text-zinc-500 mt-1">Audio, Video, or Text files (MP3, MP4, TXT, DOCX)</p>
         </div>
       </div>
 
@@ -86,13 +92,20 @@ export const MultiMediaUploader: React.FC<MultiMediaUploaderProps> = ({
         <div className="grid grid-cols-1 gap-3">
           {selectedFiles.map((file, index) => {
             const isVideo = file.type.startsWith('video/');
+            const isAudio = file.type.startsWith('audio/');
+            const isText = file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.docx') || file.name.endsWith('.doc');
+            
             return (
               <div key={index} className="relative p-4 border border-zinc-200 rounded-2xl bg-white shadow-sm flex items-center gap-4 animate-in fade-in slide-in-from-bottom-2">
                 <div className={cn(
                   "w-10 h-10 rounded-xl flex items-center justify-center",
-                  isVideo ? "bg-indigo-50 text-indigo-600" : "bg-emerald-50 text-emerald-600"
+                  isVideo ? "bg-indigo-50 text-indigo-600" : 
+                  isAudio ? "bg-emerald-50 text-emerald-600" :
+                  "bg-amber-50 text-amber-600"
                 )}>
-                  {isVideo ? <FileVideo size={20} /> : <FileAudio size={20} />}
+                  {isVideo ? <FileVideo size={20} /> : 
+                   isAudio ? <FileAudio size={20} /> :
+                   <FileText size={20} />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-zinc-900 truncate">{file.name}</p>
