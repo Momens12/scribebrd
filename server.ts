@@ -91,6 +91,12 @@ async function startServer() {
     res.json({ id });
   });
 
+  app.put("/api/brds/:id", (req, res) => {
+    const { content } = req.body;
+    db.prepare("UPDATE brds SET content = ? WHERE id = ?").run(content, req.params.id);
+    res.json({ success: true });
+  });
+
   app.post("/api/brds/:id/final", upload.single("file"), (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
     db.prepare("UPDATE brds SET final_doc_path = ? WHERE id = ?").run(

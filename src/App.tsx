@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { Mic, Video, Sparkles, Loader2, AlertCircle, History, ArrowRight, FileText, StickyNote, ChevronLeft, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { FileUploader } from './components/FileUploader';
+import { MultiMediaUploader } from './components/MultiMediaUploader';
 import { MultiFileUploader } from './components/MultiFileUploader';
 import { TranscriptionResult } from './components/TranscriptionResult';
 import { BRDEditor } from './components/BRDEditor';
 import { BRDChat } from './components/BRDChat';
-import { transcribeMedia, generateBRD } from './services/gemini';
-import { Upload, MessageSquare, CheckCircle2 } from 'lucide-react';
+import { transcribeMedia, generateBRD, refineBRD } from './services/gemini';
+import { cn } from './utils';
+import { Upload, MessageSquare, CheckCircle2, Wand2, Send } from 'lucide-react';
 
 // Declare mammoth for TypeScript
 declare global {
@@ -31,7 +32,7 @@ type AppStep = 'transcribe' | 'brd-setup' | 'brd-result';
 
 export default function App() {
   const [step, setStep] = useState<AppStep>('transcribe');
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcription, setTranscription] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +48,8 @@ export default function App() {
   const [finalFile, setFinalFile] = useState<File | null>(null);
   const [isUploadingFinal, setIsUploadingFinal] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [aiCommand, setAiCommand] = useState('');
+  const [isRefining, setIsRefining] = useState(false);
 
   React.useEffect(() => {
     fetchHistory();
@@ -75,19 +78,25 @@ export default function App() {
   };
 
   const handleTranscribe = async () => {
-    if (!file) return;
+    if (files.length === 0) return;
 
     setIsProcessing(true);
     setError(null);
     setTranscription(null);
 
     try {
-      const base64 = await fileToBase64(file);
-      const result = await transcribeMedia(base64, file.type, language);
-      setTranscription(result);
+      const transcriptions = await Promise.all(
+        files.map(async (file) => {
+          const base64 = await fileToBase64(file);
+          const result = await transcribeMedia(base64, file.type, language);
+          return `### Transcription for: ${file.name}\n\n${result}`;
+        })
+      );
+      
+      setTranscription(transcriptions.join('\n\n---\n\n'));
     } catch (err) {
       console.error(err);
-      setError('Failed to transcribe media. Please try again with a smaller file or different format.');
+      setError('Failed to transcribe media. Please try again with smaller files or different formats.');
     } finally {
       setIsProcessing(false);
     }
@@ -149,12 +158,12 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: file?.name.replace(/\.[^/.]+$/, "") || "Untitled BRD",
-          content: result,
-          transcription: transcription,
-          extraNotes: extraNotes,
-          language: language
-        })
+        title: files[0]?.name.replace(/\.[^/.]+$/, "") || "Untitled BRD",
+        content: result,
+        transcription: transcription,
+        extraNotes: extraNotes,
+        language: language
+      })
       });
       const { id } = await saveRes.json();
       setCurrentBrdId(id);
@@ -188,8 +197,35 @@ export default function App() {
     }
   };
 
+  const handleRefineBRD = async () => {
+    if (!aiCommand.trim() || !brdResult || isRefining) return;
+
+    setIsRefining(true);
+    setError(null);
+
+    try {
+      const result = await refineBRD(brdResult, aiCommand, language);
+      setBrdResult(result);
+      setAiCommand('');
+      
+      // Update DB
+      if (currentBrdId) {
+        await fetch(`/api/brds/${currentBrdId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: result })
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Failed to refine BRD. Please try again.');
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
   const reset = () => {
-    setFile(null);
+    setFiles([]);
     setTranscription(null);
     setError(null);
     setStep('transcribe');
@@ -205,11 +241,13 @@ export default function App() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-zinc-200">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 cursor-pointer" onClick={reset}>
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-indigo-200">
-              <Sparkles size={18} />
-            </div>
-            <span className="font-bold text-xl tracking-tight">EchoScribe</span>
+          <div className="flex items-center gap-3 cursor-pointer" onClick={reset}>
+            <img 
+              src="http://www.experts.ps/wp-content/uploads/2014/05/logo1.png" 
+              alt="Experts Logo" 
+              className="h-8 w-auto object-contain"
+              referrerPolicy="no-referrer"
+            />
           </div>
           
           <div className="flex items-center gap-4">
@@ -268,21 +306,21 @@ export default function App() {
 
                 {/* Upload Section */}
                 <div className="space-y-6">
-                  <FileUploader 
-                    onFileSelect={setFile} 
-                    selectedFile={file} 
-                    onClear={reset}
+                  <MultiMediaUploader 
+                    onFilesSelect={(newFiles) => setFiles(prev => [...prev, ...newFiles])} 
+                    selectedFiles={files} 
+                    onRemoveFile={(index) => setFiles(prev => prev.filter((_, i) => i !== index))}
                     disabled={isProcessing}
                   />
 
-                  {file && !transcription && !isProcessing && (
+                  {files.length > 0 && !transcription && !isProcessing && (
                     <div className="flex justify-center">
                       <button
                         onClick={handleTranscribe}
                         className="group relative px-8 py-4 bg-indigo-600 text-white rounded-2xl font-semibold shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-3"
                       >
                         <Sparkles size={20} className="group-hover:rotate-12 transition-transform" />
-                        Start Transcription
+                        {language === 'ar' ? 'بدء النسخ لجميع الملفات' : 'Start Transcription for all files'}
                       </button>
                     </div>
                   )}
@@ -452,6 +490,43 @@ export default function App() {
 
                 {brdResult && (
                   <div className="space-y-12">
+                    {/* AI Commands Section */}
+                    <div className="bg-white border border-zinc-200 rounded-3xl p-6 shadow-sm space-y-4">
+                      <div className="flex items-center gap-2 text-zinc-900">
+                        <Wand2 size={20} className="text-indigo-600" />
+                        <h3 className="font-bold">{language === 'ar' ? 'أوامر الذكاء الاصطناعي' : 'AI Commands'}</h3>
+                      </div>
+                      <p className="text-sm text-zinc-500">
+                        {language === 'ar' 
+                          ? 'اطلب من الذكاء الاصطناعي تعديل الوثيقة (مثال: "أضف قسمًا للمخاطر" أو "اجعل النبرة أكثر رسمية")' 
+                          : 'Ask AI to modify the document (e.g., "Add a risks section" or "Make the tone more formal")'}
+                      </p>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={aiCommand}
+                          onChange={(e) => setAiCommand(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleRefineBRD()}
+                          dir={language === 'ar' ? 'rtl' : 'ltr'}
+                          placeholder={language === 'ar' ? 'أدخل أمرك هنا...' : 'Enter your command here...'}
+                          className={cn(
+                            "w-full py-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all",
+                            language === 'ar' ? "pl-12 pr-4 font-arabic" : "pl-4 pr-12"
+                          )}
+                        />
+                        <button
+                          onClick={handleRefineBRD}
+                          disabled={!aiCommand.trim() || isRefining}
+                          className={cn(
+                            "absolute top-1/2 -translate-y-1/2 p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all disabled:opacity-50",
+                            language === 'ar' ? "left-2" : "right-2"
+                          )}
+                        >
+                          {isRefining ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} className={language === 'ar' ? "rotate-180" : ""} />}
+                        </button>
+                      </div>
+                    </div>
+
                     <BRDEditor 
                       initialText={brdResult} 
                       language={language}
@@ -626,7 +701,7 @@ export default function App() {
       {/* Footer */}
       <footer className="max-w-5xl mx-auto px-6 py-12 border-t border-zinc-200 mt-12">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-zinc-400">
-          <p>© 2024 EchoScribe. Powered by Gemini AI.</p>
+          <p>© {new Date().getFullYear()} Experts. Powered by Gemini AI.</p>
           <div className="flex items-center gap-6">
             <a href="#" className="hover:text-zinc-600 transition-colors">Privacy</a>
             <a href="#" className="hover:text-zinc-600 transition-colors">Terms</a>

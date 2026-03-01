@@ -16,8 +16,22 @@ export async function transcribeMedia(
   const ai = getAI();
   
   const prompt = language === 'ar' 
-    ? "يرجى تقديم نسخة مكتوبة عالية الجودة وحرفية لملف الوسائط هذا باللغة العربية. قم بتضمين تسميات المتحدثين إذا كان هناك عدة متحدثين. قم بتنسيق المخرجات بوضوح مع الطوابع الزمنية إن أمكن."
-    : "Please provide a high-quality, verbatim transcription of this media file in English. Include speaker labels if there are multiple speakers. Format the output clearly with timestamps if possible.";
+    ? `يرجى تقديم نسخة مكتوبة احترافية وعالية الجودة وحرفية لملف الوسائط هذا باللغة العربية.
+       يجب أن يتبع التنسيق هذا الهيكل الدقيق:
+       1. العنوان: (اسم الملف أو موضوعه)
+       2. اللغة: (العربية مع تحديد اللهجة إن وجدت)
+       3. الطوابع الزمنية: استخدم تنسيق [MM:SS] في بداية كل فقرة حديث أو تغيير متحدث.
+       4. تسميات المتحدثين: (الاسم: النص).
+       5. توثيق فترات الصمت أو الضجيج بوضوح (مثلاً: [00:00 - 00:10] صمت).
+       6. تأكد من أن النص منسق بشكل جيد وسهل القراءة.`
+    : `Please provide a professional, high-quality verbatim transcription of this media file in English.
+       The format MUST follow this exact structure:
+       1. Title: (File name or topic)
+       2. Language: (English and context)
+       3. Timestamps: Use [MM:SS] format at the start of every speech segment or speaker change.
+       4. Speaker Labels: (Name: Text).
+       5. Document silence or background noise clearly (e.g., [00:00 - 00:10] Silence).
+       6. Ensure the output is well-structured and easy to read.`;
 
   const mediaPart = {
     inlineData: {
@@ -110,4 +124,42 @@ export async function generateBRD(
   });
 
   return response.text || "Failed to generate BRD.";
+}
+
+export async function refineBRD(
+  currentContent: string,
+  command: string,
+  language: 'en' | 'ar' = 'en'
+): Promise<string> {
+  const ai = getAI();
+
+  const systemInstruction = language === 'ar'
+    ? `أنت محلل أعمال خبير. مهمتك هي تعديل وثيقة متطلبات العمل (BRD) الحالية بناءً على تعليمات المستخدم.
+      
+      يجب عليك:
+      1. الحفاظ على تنسيق Markdown والجداول المستخدمة في الوثيقة الأصلية.
+      2. تطبيق التعديلات المطلوبة بدقة مع الحفاظ على اتساق الوثيقة بالكامل.
+      3. الرد بالوثيقة المعدلة بالكامل فقط. لا تضف أي شرح أو تعليقات خارج الوثيقة.
+      4. استخدام اللغة العربية.`
+    : `You are an expert Business Analyst. Your task is to modify the current Business Requirements Document (BRD) based on the user's instructions.
+      
+      You MUST:
+      1. Maintain the Markdown formatting and tables used in the original document.
+      2. Apply the requested modifications precisely while keeping the entire document consistent.
+      3. Respond with the FULL modified document only. Do not add any explanations or comments outside the document.
+      4. Use English.`;
+
+  const response: GenerateContentResponse = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { text: `${systemInstruction}\n\nCurrent BRD Content:\n${currentContent}\n\nUser Command:\n${command}` }
+        ]
+      }
+    ]
+  });
+
+  return response.text || currentContent;
 }
